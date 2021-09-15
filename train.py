@@ -30,18 +30,19 @@ description = {
     "image": "byte",
     "size": "int",
 }
-train_dataset = TFRecordDataset("train.tfrecord", None, description)
+train_dataset = TFRecordDataset("valid.tfrecord", None, description)
 # do not shuffle
 train_dataloader = dataloader.DataLoader(
     dataset=train_dataset,
     batch_size=opt.batch_size,
-    num_workers=opt.workers,
+    num_workers=0,
     pin_memory=True,
     drop_last=True
 )
-
-length = 600000
-
+# length = 0
+# for record in train_dataloader:
+#     length += opt.workers
+length = 630144
 # models init
 model = XVC().to(device)
 
@@ -71,12 +72,16 @@ for epoch in range(opt.niter):
             model_optimizer.zero_grad()
 
             total_criterion, total_bpp = model(inputs, epoch)
+            loss = total_criterion + 1024 * total_bpp
 
-            total_criterion.backward()
-            utils.clip_gradient(model_optimizer, 5)
+            loss.backward()
+            # utils.clip_gradient(model_optimizer, 5)
 
             model_optimizer.step()
-            epoch_losses.update(total_criterion.item(), opt.batch_size)
+            if epoch <= 5:
+                epoch_losses.update(total_criterion.item(), opt.batch_size)
+            else:
+                epoch_losses.update(total_criterion.item(), opt.batch_size)
             epoch_bpp.update(total_bpp.item(), opt.batch_size)
 
             t.set_postfix(
@@ -87,27 +92,4 @@ for epoch in range(opt.niter):
 
     model_scheduler.step()
 
-    # test, just pick one to take a look
-    # model.eval()
-    # epoch_pnsr = utils.AverageMeter()
-    # epoch_ssim = utils.AverageMeter()
-
-    # cnt = 0
-    # for record in valid_dataloader:
-    #     cnt += 1
-    #     if cnt >= 100:
-    #         break
-    #     inputs = record["image"].reshape(
-    #         1,
-    #         3,
-    #         record["size"][0],
-    #         record["size"][0],
-    #     ).float().to("cuda")
-
-    #     with torch.no_grad():
-    #         output, bpp_feature_val, bpp_z_val = model(inputs)
-    #         epoch_pnsr.update(utils.calc_psnr(output, inputs), len(inputs))
-    #         epoch_ssim.update(utils.calc_ssim(output, inputs), len(inputs))
-
-    # print('eval psnr: {:.4f} eval ssim: {:.4f}\n'.format(epoch_pnsr.avg, epoch_ssim.avg))
-    # torch.save(model.state_dict(), "edic_epoch_{}_bpp_{}.pth".format(epoch, bpp.item()))
+    torch.save(model.state_dict(), "xvc_epoch_{}.pth".format(epoch))

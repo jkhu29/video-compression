@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from gdn import GDN
 from dcn import DeformConv2d
 from bit_estimator import EntropyBlock
+# from entropy_model import EntropyBlock
 from ssim_loss import MsssimLoss
 
 
@@ -89,7 +90,7 @@ class FrameReconstruction(nn.Module):
         self.upsample = UpSample(**kwargs)
 
     def forward(self, x):
-        return self.upsample(x)
+        return torch.clamp(self.upsample(x), -255, 255)
 
 
 class MotionEstimate(nn.Module):
@@ -190,6 +191,7 @@ class InfoDecoder(nn.Module):
 
     def forward(self, x):
         x = self.decoder(x)
+        # if you use transformer, don't upsample
         x = self.tail(x)
         x = self.ca(x)
         return x
@@ -204,12 +206,16 @@ class InfoCompression(nn.Module):
         self.entropy_model = EntropyBlock()
 
     def forward(self, x):
+        # code below for EntropyBlock in bit_estimator.py
         x = self.encoder(x)
-        x = torch.floor(x)
+        x = torch.round(x)
         if self.training:
             noise = self.uniform.sample(x.shape)[..., 0].to(x.device)
             x += noise
         total_bits, prob = self.entropy_model(x)
+
+        # code below for EntropyBlock in entropy_model.py
+        # prob, total_bits, x = self.entropy_model(x)
         x_hat = self.decoder(x)
         return x_hat, total_bits, prob
 
@@ -226,7 +232,6 @@ class XVC(nn.Module):
         self.ResidualCompress = InfoCompression()
 
     def ecodec(self, x, feature_buffer, epoch:int = 0):
-        x /= 255
         f_t = self.FeatureExtract(x)
         m_t = self.MotionEstimate(f_t, feature_buffer)
         m_hat, m_bits, m_prob = self.MotionCompress(m_t)
@@ -238,19 +243,19 @@ class XVC(nn.Module):
 
         f_t_hat = r_hat + f_t_pre
         x_t_hat = self.FrameReconstruct(f_t_hat)
-        print(x_t_hat)
 
         total_bits = r_bits + m_bits
         bpp = total_bits / (x.shape[0] * x.shape[2] * x.shape[3])
 
-        if epoch <= 3:
-            criterion = nn.MSELoss()(x, x_t_hat) + 8192 * bpp
-        elif epoch <= 6:
-            criterion = nn.L1Loss()(x, x_t_hat) + 4096 * (bpp + MsssimLoss()(x, x_t_hat))
+        if epoch <= 5:
+            criterion = nn.MSELoss()(x, x_t_hat)
         else:
-            criterion = nn.L1Loss()(x, x_t_hat) + 512 * MsssimLoss()(x, x_t_hat) + 2048 * bpp
+            criterion = nn.L1Loss()(x, x_t_hat) + 4096 * MsssimLoss()(x, x_t_hat)
 
-        return criterion, bpp, f_t_hat
+        if self.training:
+            return criterion, bpp, f_t_hat
+        else:
+            return x_t_hat, bpp
 
     def forward(self, x, epoch:int = 0):
         _, num, _, h, w = x.shape
@@ -259,14 +264,15 @@ class XVC(nn.Module):
         total_bpp = 0.
 
         for i in range(1, num):
-            criterion, bpp, f_t_hat = self.ecodec(x[:, i, ...], feature_buffer, epoch)
-            total_criterion += criterion
-            total_bpp += bpp
-            feature_buffer = f_t_hat
-
-        total_criterion = torch.sum(total_criterion)
-
-        return total_criterion, total_bpp
+            if self.training:
+                criterion, bpp, f_t_hat = self.ecodec(x[:, i, ...], feature_buffer, epoch)
+                total_criterion += criterion
+                total_bpp += bpp
+                feature_buffer = f_t_hat
+                return total_criterion / (num-1), total_bpp / (num-1)
+            else:
+                x_t_hat, bpp = self.ecodec(x[:, i, ...], feature_buffer, epoch)
+                return x_t_hat, bpp / (num-1)
 
 
 if __name__ == '__main__':

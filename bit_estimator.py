@@ -54,4 +54,3 @@ class EntropyBlock(nn.Module):
         prob = self.bitestimator(x + 0.5) - self.bitestimator(x - 0.5)
         total_bits = torch.sum(torch.clamp(-1 * torch.log(prob + 1e-8) / math.log(2.0), min=1e-10, max=50.))
         return total_bits, prob
-        

@@ -19,7 +19,7 @@ def create_window(window_size, sigma, channel):
 
 
 class MsssimLoss(nn.Module):
-    def __init__(self, size_average=True, max_val=1):
+    def __init__(self, size_average=True, max_val=255):
         super(MsssimLoss, self).__init__()
         self.size_average = size_average
         self.channel = 3
@@ -67,6 +67,5 @@ class MsssimLoss(nn.Module):
                     (msssim[levels-1]**weight[levels-1])
         return value
 
-
     def forward(self, img1, img2):
-        return self.ms_ssim(img1, img2)
+        return -50 * torch.log(self.ms_ssim(img1, img2) + 1e-8)

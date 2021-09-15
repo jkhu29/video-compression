@@ -15,6 +15,8 @@ print(length, image_width, image_height)
 
 writer = tfrecord.TFRecordWriter("train.tfrecord")
 ret = True
+j = 0
+length = 0
 while ret:
     img_batch_rgb = np.empty(
         shape=[0, image_channel, image_height, image_width],
@@ -35,11 +37,15 @@ while ret:
                                      int(x): int(x + 128),
                                      int(y): int(y + 128)]
             img_bytes = img_part.tobytes()
+            length += 1
 
             writer.write({
                 "image": (img_bytes, "byte"),
                 "size": (128, "int"),
             })
+    j += 1
+    print(j)
 
 writer.close()
+print(length)
 videoCapture.release()

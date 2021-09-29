@@ -10,6 +10,8 @@ use deep-learning method to compress video, make sure the video is already downl
 
 ## Out
 
+### Baseline(no learned entropy block)
+
 train loss, see `ans.txt`: 
 
 1. epoch: 10, learning rate: 3e-4, batch_size: 64, loss: 5 epochs for MSELoss(warmup), 5 epochs for L1Loss & MSSSIMLoss
@@ -29,6 +31,13 @@ valid ans:
 
 epoch is larger, bpp is lower
 
+## Entropy Block
+
+1. non learned: baseline, bpp may be 5
+2. transformer: take a long time, but bpp could be 0.5 or lower
+3. channel attention: best, quicker than transformer and lower bpp
+4. non local attention(work bad)
+
 ## Requirement
 
 1. pytorch >= 1.6.0
@@ -37,4 +46,4 @@ epoch is larger, bpp is lower
 
 ## Trouble shoot
 
-1. don't set learning rate too large(1e-3 or larger), `torch.clamp` is not used
+1. don't set learning rate too large(1e-3 or larger)

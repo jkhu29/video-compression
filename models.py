@@ -1,12 +1,13 @@
 import math
+import time
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from gdn import GDN
 from dcn import DeformConv2d
-from bit_estimator import EntropyBlock
-# from entropy_model import EntropyBlock
+import entropy_model
 from ssim_loss import MsssimLoss
 
 
@@ -94,7 +95,7 @@ class FrameReconstruction(nn.Module):
 
 
 class MotionEstimate(nn.Module):
-    def __init__(self, channels: int = 64,num_gdns: int = 3):
+    def __init__(self, channels: int = 64, num_gdns: int = 3):
         super(MotionEstimate, self).__init__()
         self.res = _make_layer(
             ResBlock, num_layers=num_gdns,
@@ -149,7 +150,36 @@ class ChannelAttention(nn.Module):
         )
 
     def forward(self, x):
-        return x * self.conv(self.avg_pool(x))
+        score = self.conv(self.avg_pool(x))
+        return score, x * score
+
+
+class NonLocalAttention(nn.Module):
+    def __init__(self, channels: int = 64):
+        super(NonLocalAttention, self).__init__()
+        self.conv1 = nn.Conv2d(channels, channels, 1, 1)
+        self.relu1 = nn.CELU(inplace=True)
+
+        self.conv2 = nn.Conv2d(channels, channels, 1, 1)
+        self.relu2 = nn.CELU(inplace=True)
+
+        self.conv3 = nn.Conv2d(channels, channels, 1)
+        self.relu3 = nn.CELU(inplace=True)
+
+    def forward(self, x):
+        x_embed1 = self.relu1(self.conv1(x))
+        x_embed2 = self.relu2(self.conv2(x))
+        x_assembly = self.relu3(self.conv3(x))
+
+        n, c, h, w = x_embed1.shape
+        x_embed1 = x_embed1.permute(0, 2, 3, 1).view(n, h * w, c)
+        x_embed2 = x_embed2.view(n, c, h * w)
+        score = torch.matmul(x_embed1, x_embed2)
+        score = F.softmax(score, dim=2)
+        x_assembly = x_assembly.view(n, -1, h * w).permute(0, 2, 1)
+        x_final = torch.matmul(score, x_assembly).permute(0, 2, 1).view(n, -1, h, w)
+
+        return score, x_final
 
 
 class InfoEncoder(nn.Module):
@@ -170,7 +200,7 @@ class InfoEncoder(nn.Module):
     def forward(self, x):
         x = self.head(x)
         x = self.encoder(x)
-        x = self.ca(x)
+        _, x = self.ca(x)
         return x
 
 
@@ -191,9 +221,9 @@ class InfoDecoder(nn.Module):
 
     def forward(self, x):
         x = self.decoder(x)
-        # if you use transformer, don't upsample
+        # if you use transformer to be entropy model, don't do this
         x = self.tail(x)
-        x = self.ca(x)
+        _, x = self.ca(x)
         return x
 
 
@@ -203,19 +233,12 @@ class InfoCompression(nn.Module):
         self.encoder = InfoEncoder()
         self.decoder = InfoDecoder()
         self.uniform = torch.distributions.uniform.Uniform(torch.tensor([-0.5]), torch.tensor([0.5]))
-        self.entropy_model = EntropyBlock()
+        self.entropy_model = entropy_model.EntropyBlockCA()
 
     def forward(self, x):
-        # code below for EntropyBlock in bit_estimator.py
+        # if you use transformer to be entropy model, don't do self.encoder(x)
         x = self.encoder(x)
-        x = torch.round(x)
-        if self.training:
-            noise = self.uniform.sample(x.shape)[..., 0].to(x.device)
-            x += noise
-        total_bits, prob = self.entropy_model(x)
-
-        # code below for EntropyBlock in entropy_model.py
-        # prob, total_bits, x = self.entropy_model(x)
+        prob, total_bits, x = self.entropy_model(x)
         x_hat = self.decoder(x)
         return x_hat, total_bits, prob
 
@@ -276,6 +299,11 @@ class XVC(nn.Module):
 
 
 if __name__ == '__main__':
+    import time
     a = XVC().to("cuda")
     test_data = torch.rand(4, 2, 3, 128, 128).to("cuda")
-    print(a(test_data, epoch=11))
+    t0 = time.clock()
+    for _ in range(10):
+        a(test_data, epoch=6)
+    t1 = time.clock()
+    print("cost {}s".format(t1 - t0))

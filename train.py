@@ -30,7 +30,7 @@ description = {
     "image": "byte",
     "size": "int",
 }
-train_dataset = TFRecordDataset("valid.tfrecord", None, description)
+train_dataset = TFRecordDataset("train.tfrecord", None, description)
 # do not shuffle
 train_dataloader = dataloader.DataLoader(
     dataset=train_dataset,
@@ -39,10 +39,11 @@ train_dataloader = dataloader.DataLoader(
     pin_memory=True,
     drop_last=True
 )
-# length = 0
+
 # for record in train_dataloader:
 #     length += opt.workers
 length = 630144
+# length = 36000  # for valid.tfrecord
 # models init
 model = XVC().to(device)
 

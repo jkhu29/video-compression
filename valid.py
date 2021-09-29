@@ -9,10 +9,10 @@ import models
 import utils
 
 
-l = os.listdir("pretrained_models")
+l = os.listdir("pretrained_models_ca")
 l.sort()
 for name in l:
-    model_name = os.path.join("pretrained_models", name)
+    model_name = os.path.join("pretrained_models_ca", name)
     # dataset init, train file need .tfrecord
     description = {
         "image": "byte",
